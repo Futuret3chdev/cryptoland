@@ -2,143 +2,60 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Line } from 'react-chartjs-2';
+import { CategoryScale, Chart as ChartJS, Filler, LinearScale, LineElement, PointElement } from 'chart.js';
+import Trailer from './Trailer';
 import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Filler,
-  Tooltip,
-} from 'chart.js';
+  COINS,
+  LOOK,
+  type Coin,
+  type Tape,
+  cycleU,
+  dayBill,
+  dayYield,
+  money,
+  px,
+  qty,
+  quote,
+  stamp,
+  worth,
+} from './engine';
+import { useFloor } from './useFloor';
 
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip);
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler);
 
-type Coin = 'BTC' | 'ETH' | 'SOL';
-type Bag = Record<Coin, number>;
-
-const COINS: Coin[] = ['BTC', 'ETH', 'SOL'];
-
-const LOOK: Record<Coin, { name: string; color: string; letter: string; vol: number; start: number }> = {
-  BTC: { name: 'Bitcoin', color: '#f7931a', letter: 'B', vol: 480, start: 65000 },
-  ETH: { name: 'Ether', color: '#8aa4ff', letter: 'E', vol: 55, start: 3500 },
-  SOL: { name: 'Solana', color: '#14f195', letter: 'S', vol: 4.5, start: 150 },
-};
-
-const empty = (): Bag => ({ BTC: 0, ETH: 0, SOL: 0 });
+const TAPES: { id: Tape; label: string }[] = [
+  { id: 'slide', label: 'Red day' },
+  { id: 'melt', label: 'Melt-up' },
+  { id: 'chop', label: 'Chop' },
+];
 
 export default function CryptoLand() {
-  const [balance, setBalance] = useState(10000);
-  const [portfolio, setPortfolio] = useState<Bag>(empty);
-  const [power, setPower] = useState<Bag>({ BTC: 1, ETH: 1, SOL: 1 });
-  const [prices, setPrices] = useState<Bag>({ BTC: 65000, ETH: 3500, SOL: 150 });
-  const [history, setHistory] = useState<Record<Coin, number[]>>({
-    BTC: Array(24).fill(65000),
-    ETH: Array(24).fill(3500),
-    SOL: Array(24).fill(150),
-  });
-  const [dirs, setDirs] = useState<Record<Coin, 'up' | 'down'>>({ BTC: 'up', ETH: 'up', SOL: 'up' });
-  const [selected, setSelected] = useState<Coin>('BTC');
-  const [live, setLive] = useState(true);
-  const [buyAmt, setBuyAmt] = useState('250');
-  const [sellPct, setSellPct] = useState('25');
-  const [toast, setToast] = useState('');
-  const [bursts, setBursts] = useState<{ id: number; coin: Coin; text: string }[]>([]);
+  const floor = useFloor();
+  const { save, ready } = floor;
+  const [pick, setPick] = useState<Coin>('SOL');
+  const [usd, setUsd] = useState('250');
+  const [part, setPart] = useState('25');
+  const [rules, setRules] = useState(false);
+  const [trailer, setTrailer] = useState(false);
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setPrices((prev) => {
-        const next = { ...prev };
-        const nextDir = { ...dirs };
-        const ticks: Partial<Bag> = {};
-        for (const coin of COINS) {
-          const change = (Math.random() - 0.48) * LOOK[coin].vol;
-          const value = Math.max(LOOK[coin].start * 0.15, Math.round((prev[coin] + change) * 100) / 100);
-          next[coin] = value;
-          ticks[coin] = value;
-          nextDir[coin] = value >= prev[coin] ? 'up' : 'down';
-        }
-        setDirs(nextDir);
-        setHistory((book) => {
-          const copy = { ...book };
-          for (const coin of COINS) copy[coin] = [...book[coin].slice(-23), ticks[coin] as number];
-          return copy;
-        });
-        return next;
-      });
-    }, 2200);
-    return () => clearInterval(id);
-    // dirs is read only to seed the first paint; the tick replaces it.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!ready) return;
+    if (!localStorage.getItem('cl-seen-trailer')) setTrailer(true);
+  }, [ready]);
 
-  useEffect(() => {
-    if (!toast) return;
-    const id = setTimeout(() => setToast(''), 2200);
-    return () => clearTimeout(id);
-  }, [toast]);
-
-  function mine(coin: Coin, manual: boolean) {
-    const mined = power[coin] * (manual ? Math.random() * 0.012 + 0.002 : Math.random() * 0.003 + 0.0005);
-    setPortfolio((bag) => ({ ...bag, [coin]: bag[coin] + mined }));
-    if (manual) setBalance((cash) => cash + Math.random() * 6 + 1);
-    const id = Date.now() + Math.random();
-    setBursts((list) => [...list.slice(-10), { id, coin, text: `+${mined.toFixed(4)}` }]);
-    setTimeout(() => setBursts((list) => list.filter((item) => item.id !== id)), 900);
-  }
-
-  useEffect(() => {
-    if (!live) return;
-    const id = setInterval(() => {
-      const coin = COINS[Math.floor(Math.random() * COINS.length)];
-      mine(coin, false);
-    }, 1600);
-    return () => clearInterval(id);
-  }, [live, power]);
-
-  function upgrade(coin: Coin) {
-    const cost = 1000 * power[coin];
-    if (balance < cost) {
-      setToast('Not enough cash for that rig.');
-      return;
-    }
-    setBalance((cash) => cash - cost);
-    setPower((rigs) => ({ ...rigs, [coin]: rigs[coin] + 1 }));
-  }
-
-  function buy(coin: Coin, usd: number) {
-    if (!usd || usd <= 0) return;
-    if (balance < usd) {
-      setToast('Not enough cash for that buy.');
-      return;
-    }
-    const qty = usd / prices[coin];
-    setBalance((cash) => cash - usd);
-    setPortfolio((bag) => ({ ...bag, [coin]: bag[coin] + qty }));
-    setToast(`Bought ${qty.toFixed(4)} ${coin}`);
-  }
-
-  function sell(coin: Coin, fraction: number) {
-    const qty = portfolio[coin] * fraction;
-    if (qty <= 0) {
-      setToast(`No ${coin} in the vault.`);
-      return;
-    }
-    setPortfolio((bag) => ({ ...bag, [coin]: bag[coin] - qty }));
-    setBalance((cash) => cash + qty * prices[coin]);
-    setToast(`Sold ${qty.toFixed(4)} ${coin}`);
-  }
-
-  const worth = balance + COINS.reduce((sum, coin) => sum + portfolio[coin] * prices[coin], 0);
-  const avgPower = COINS.reduce((sum, coin) => sum + power[coin], 0) / 3;
-  const color = LOOK[selected].color;
-
+  const now = Date.now();
+  const mark = ready ? stamp(save, now) : 'FROZEN';
+  const coin = pick;
+  const color = LOOK[coin].color;
+  const due = dayBill(save.power[save.aim], save.overclock);
+  const yieldIfHeld = dayYield(save);
+  const dial = cycleU(save.phase, save.left) * 100;
   const chart = useMemo(
     () => ({
-      labels: history[selected].map((_, i) => `${i}`),
+      labels: save.hist[coin].map((_, index) => `${index}`),
       datasets: [
         {
-          data: history[selected],
+          data: save.hist[coin],
           borderColor: color,
           backgroundColor: `${color}33`,
           fill: true,
@@ -148,176 +65,252 @@ export default function CryptoLand() {
         },
       ],
     }),
-    [history, selected, color],
+    [save.hist, coin, color],
   );
 
+  function closeTrailer() {
+    localStorage.setItem('cl-seen-trailer', '1');
+    setTrailer(false);
+  }
+
+  if (!ready) {
+    return (
+      <div className="land is-dawn">
+        <div className="land-bg" />
+        <p className="boot">Opening the floor…</p>
+      </div>
+    );
+  }
+
+  const move = save.change[save.aim];
+  const banner =
+    save.phase === 'dawn'
+      ? mark === 'REPLAY'
+        ? `Replay · ${save.tape === 'slide' ? 'red day' : save.tape === 'melt' ? 'melt-up' : 'chop'}. Not the live street. Aim the rig.`
+        : `Dawn ${save.day}. ${LOOK[save.aim].name} ${move >= 0 ? '+' : ''}${move.toFixed(1)}% on the street. Aim one rig.`
+      : save.phase === 'day'
+        ? save.tripped
+          ? 'The overclock tripped the rig. Hash stops until dawn. The bill still comes.'
+          : `Hashing ${save.aim}. About ${qty(save.aim, yieldIfHeld)} if it holds. Bill at dusk ${money(due)}.`
+        : save.dark
+          ? `Power bill ${money(save.bill)} emptied the cash book. The next day runs dark unless you sell.`
+          : `Dusk. Power bill ${money(save.bill)} left the cash book. Sell into the street or hold.`;
+
   return (
-    <div className="land">
+    <div className={`land is-${save.phase}`}>
       <div className="land-bg" />
       <main className="shell">
-        <header className="top">
-          <div className="brand">
-            <img src="/t3x-mark.png" alt="" className="mark" />
-            <div>
-              <h1>Crypto Land</h1>
-              <p>Mine the night city. Trade the live book.</p>
+        <header className="drip">
+          <img src="/t3x-mark.png" alt="" />
+          <div className="drip-copy">
+            <strong>T3X {save.drip.toFixed(4)}%</strong>
+            <div className="drip-track">
+              <i style={{ width: `${Math.min(100, save.drip)}%` }} />
+              <em key={save.pulses} />
             </div>
           </div>
-          <button className={`live-toggle ${live ? 'on' : ''}`} onClick={() => setLive((on) => !on)}>
-            <i className="pulse" />
-            <strong>{live ? 'RIGS LIVE' : 'RIGS IDLE'}</strong>
-            <span>{live ? 'hashing' : 'paused'}</span>
-          </button>
+          <b>{save.t3x} held</b>
         </header>
+        <p className="drip-note">Leave the floor open. Each hash adds a crumb. A full bar pays 1 T3X here. No wallet.</p>
 
-        <div className="tape" aria-hidden="true">
-          {COINS.map((coin) => (
-            <b key={coin} className={dirs[coin]}>
-              {coin} ${prices[coin].toLocaleString()} {dirs[coin] === 'up' ? '▲' : '▼'}
-            </b>
+        <section className="hero">
+          <div className="brand">
+            <img src="/t3x-mark.png" alt="" />
+            <h1>Crypto Land</h1>
+          </div>
+          <div className="hero-pills">
+            <span className={`stamp is-${mark.toLowerCase()}`}>{mark}</span>
+            <button onClick={() => setTrailer(true)}>Trailer</button>
+          </div>
+        </section>
+
+        <section className="tape" aria-label="Street">
+          {COINS.map((id) => (
+            <button key={id} className={coin === id ? 'on' : ''} onClick={() => setPick(id)}>
+              <b>{id}</b>
+              <span>{px(save.prices[id])}</span>
+              <em className={save.change[id] >= 0 ? 'up' : 'down'}>
+                {save.change[id] >= 0 ? '+' : ''}
+                {save.change[id].toFixed(2)}%
+              </em>
+            </button>
           ))}
-        </div>
+        </section>
+
+        <section className="dial" aria-label="Game day">
+          <div className="dial-track">
+            <i style={{ left: `${dial}%` }} />
+          </div>
+          <div className="dial-labels">
+            <span className={save.phase === 'dawn' ? 'on' : ''}>Dawn</span>
+            <span className={save.phase === 'day' ? 'on' : ''}>Day</span>
+            <span className={save.phase === 'dusk' ? 'on' : ''}>Dusk</span>
+          </div>
+        </section>
+
+        <p className={`phase-card ${save.tripped ? 'is-trip' : ''}`}>{banner}</p>
 
         <section className="stats">
-          <article className="stat">
-            <small>CASH</small>
-            <strong>${balance.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+          <article>
+            <small>Cash</small>
+            <strong>{money(save.cash)}</strong>
           </article>
-          <article className="stat">
-            <small>NET WORTH</small>
-            <strong>${worth.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong>
+          <article>
+            <small>Worth</small>
+            <strong>{money(worth(save))}</strong>
           </article>
-          <article className="stat">
-            <small>AVG RIG POWER</small>
-            <strong>{avgPower.toFixed(1)}</strong>
-          </article>
-        </section>
-
-        <section className="floor">
-          <article className="panel">
-            <h2>Mining floor</h2>
-            <div className="rigs">
-              {COINS.map((coin) => {
-                const cost = 1000 * power[coin];
-                return (
-                  <div key={coin} className="rig" style={{ ['--coin' as string]: LOOK[coin].color }}>
-                    {bursts
-                      .filter((burst) => burst.coin === coin)
-                      .map((burst) => (
-                        <span key={burst.id} className="burst">
-                          {burst.text}
-                        </span>
-                      ))}
-                    <div className="rig-head">
-                      <div style={{ display: 'flex', gap: '0.65rem', alignItems: 'center' }}>
-                        <div className="coin">{LOOK[coin].letter}</div>
-                        <div>
-                          <h3>{LOOK[coin].name}</h3>
-                          <p>Rig power {power[coin]}</p>
-                        </div>
-                      </div>
-                      <div className={`price ${dirs[coin]}`}>
-                        ${prices[coin].toLocaleString()}
-                        <div>{dirs[coin] === 'up' ? '▲' : '▼'}</div>
-                      </div>
-                    </div>
-                    <button className="mine" onClick={() => mine(coin, true)}>
-                      Mine {coin}
-                    </button>
-                    <div className="rig-meta">
-                      <span>Held {portfolio[coin].toFixed(4)}</span>
-                      <span>${(portfolio[coin] * prices[coin]).toFixed(0)}</span>
-                    </div>
-                    <button className="upgrade" disabled={balance < cost} onClick={() => upgrade(coin)}>
-                      Upgrade · ${cost.toLocaleString()}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </article>
-
-          <article className="panel">
-            <h2>T3X exchange</h2>
-            <div className="pair-row">
-              {COINS.map((coin) => (
-                <button
-                  key={coin}
-                  className={`pair ${selected === coin ? 'on' : ''}`}
-                  style={{ ['--coin' as string]: LOOK[coin].color }}
-                  onClick={() => setSelected(coin)}
-                >
-                  {coin}
-                </button>
-              ))}
-            </div>
-            <div className="quote">
-              <strong style={{ color }}>{`$${prices[selected].toLocaleString()}`}</strong>
-              <span className={dirs[selected]}>{dirs[selected] === 'up' ? 'lifting' : 'slipping'}</span>
-            </div>
-            <div className="chart-wrap">
-              <Line
-                data={chart}
-                options={{
-                  responsive: true,
-                  maintainAspectRatio: false,
-                  plugins: { legend: { display: false }, tooltip: { enabled: false } },
-                  scales: {
-                    x: { display: false },
-                    y: { display: false },
-                  },
-                  animation: { duration: 400 },
-                }}
-              />
-            </div>
-            <div className="books">
-              <div className="book buy">
-                <label>BUY WITH CASH</label>
-                <input value={buyAmt} inputMode="decimal" onChange={(event) => setBuyAmt(event.target.value)} />
-                <div className="chips">
-                  {[100, 500, 1000].map((n) => (
-                    <button key={n} onClick={() => setBuyAmt(String(n))}>
-                      ${n}
-                    </button>
-                  ))}
-                </div>
-                <button className="go buy" onClick={() => buy(selected, Number(buyAmt) || 0)}>
-                  Buy {selected}
-                </button>
-              </div>
-              <div className="book sell">
-                <label>SELL FROM VAULT</label>
-                <input value={sellPct} inputMode="decimal" onChange={(event) => setSellPct(event.target.value)} />
-                <div className="chips">
-                  {[25, 50, 100].map((n) => (
-                    <button key={n} onClick={() => setSellPct(String(n))}>
-                      {n}%
-                    </button>
-                  ))}
-                </div>
-                <button className="go sell" onClick={() => sell(selected, (Number(sellPct) || 0) / 100)}>
-                  Sell {selected}
-                </button>
-              </div>
-            </div>
+          <article>
+            <small>Dusk bill</small>
+            <strong>{money(save.phase === 'dusk' ? save.bill : due)}</strong>
           </article>
         </section>
 
-        <section className="panel vault">
+        <section className="rigs">
+          {COINS.map((id) => {
+            const aimed = save.aim === id;
+            return (
+              <button
+                key={id}
+                className={`rig ${aimed ? 'is-aim' : 'is-dim'} ${aimed && save.phase === 'day' && !save.tripped ? 'is-live' : ''} ${aimed && save.tripped ? 'is-trip' : ''}`}
+                style={{ ['--coin' as string]: LOOK[id].color }}
+                onClick={() => floor.aim(id)}
+              >
+                <span className="coin">{LOOK[id].letter}</span>
+                <span>
+                  <strong>{LOOK[id].name}</strong>
+                  <small>
+                    Mining rig · power {save.power[id]} · {qty(id, save.bag[id])}
+                  </small>
+                </span>
+                <em>{aimed ? (save.tripped ? 'Tripped' : 'Aimed') : 'Dim'}</em>
+              </button>
+            );
+          })}
+        </section>
+
+        <div className="actions">
+          <button className="mine" disabled={save.phase !== 'day' || save.tripped} onClick={floor.mine}>
+            {save.phase !== 'day' ? 'Rigs sleep' : save.tripped ? 'Tripped' : `Mine ${save.aim}`}
+          </button>
+          <button className={save.overclock ? 'on' : ''} onClick={() => floor.overclock(!save.overclock)}>
+            {save.overclock ? 'Overclock on' : 'Overclock'}
+          </button>
+          <button onClick={() => floor.upgrade(save.aim)}>Upgrade {save.aim} · {money(1000 * save.power[save.aim])}</button>
+        </div>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h2>{LOOK[coin].name}</h2>
+            <span>{mark === 'REPLAY' ? 'Replay path' : mark === 'LIVE' ? 'Live print' : 'Last print, feed quiet'}</span>
+          </div>
+          <div className="chart-wrap">
+            <Line
+              data={chart}
+              options={{
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false }, tooltip: { enabled: false } },
+                scales: { x: { display: false }, y: { display: false } },
+                animation: { duration: 280 },
+              }}
+            />
+          </div>
+          <div className="books">
+            <div>
+              <label>Buy · you pay {px(quote(save.prices[coin], 'buy'))}</label>
+              <input value={usd} inputMode="decimal" onChange={(event) => setUsd(event.target.value)} />
+              <div className="chips">
+                {[100, 500, 1000].map((n) => (
+                  <button key={n} onClick={() => setUsd(String(n))}>
+                    ${n}
+                  </button>
+                ))}
+              </div>
+              <button className="go buy" onClick={() => floor.buy(coin, Number(usd) || 0)}>
+                Buy {coin}
+              </button>
+            </div>
+            <div>
+              <label>Sell · you get {px(quote(save.prices[coin], 'sell'))}</label>
+              <input value={part} inputMode="decimal" onChange={(event) => setPart(event.target.value)} />
+              <div className="chips">
+                {[25, 50, 100].map((n) => (
+                  <button key={n} onClick={() => setPart(String(n))}>
+                    {n}%
+                  </button>
+                ))}
+              </div>
+              <button className="go sell" onClick={() => floor.sell(coin, (Number(part) || 0) / 100)}>
+                Sell {coin}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel slim">
           <h2>Vault</h2>
-          <div className="coin-list">
-            {COINS.map((coin) => (
-              <div key={coin} className="coin-row">
-                <b>
-                  {LOOK[coin].name}
-                  <span>{coin}</span>
-                </b>
-                <span>{portfolio[coin].toFixed(4)}</span>
-                <em>${(portfolio[coin] * prices[coin]).toFixed(2)}</em>
+          {COINS.map((id) => {
+            const average = save.bag[id] > 0 ? save.basis[id] / save.bag[id] : 0;
+            return (
+              <div key={id} className="vault-row">
+                <b>{id}</b>
+                <span>{qty(id, save.bag[id])}</span>
+                <span>{average ? `avg ${px(average)}` : 'mined'}</span>
+                <em>{money(save.bag[id] * save.prices[id])}</em>
               </div>
+            );
+          })}
+          <p className="held-line">
+            T3X on this screen: {save.t3x}. Play money only.
+          </p>
+        </section>
+
+        {save.blotter.length > 0 && (
+          <section className="panel slim">
+            <h2>Fills</h2>
+            {save.blotter.map((fill) => (
+              <div key={fill.id} className="vault-row">
+                <b className={fill.side}>{fill.side}</b>
+                <span>{fill.coin}</span>
+                <span>{qty(fill.coin, fill.qty)}</span>
+                <em>{px(fill.px)}</em>
+              </div>
+            ))}
+          </section>
+        )}
+
+        <section className="panel slim">
+          <h2>Desk</h2>
+          <div className="desk">
+            <button className={save.mode === 'live' ? 'on' : ''} onClick={floor.live}>
+              Live
+            </button>
+            {TAPES.map((tape) => (
+              <button key={tape.id} className={save.mode === 'replay' && save.tape === tape.id ? 'on' : ''} onClick={() => floor.replay(tape.id)}>
+                {tape.label}
+              </button>
             ))}
           </div>
         </section>
+
+        <button className="rules-toggle" onClick={() => setRules((open) => !open)}>
+          {rules ? 'Hide rules' : 'Rules'}
+        </button>
+        {rules && (
+          <section className="panel slim rules">
+            <p>One rig runs each game day. Aim it at dawn. Overclock hashes harder, draws a fatter bill, and can trip.</p>
+            <p>Dusk takes the power bill from play cash. If the cash is short, the next day runs dark at half hash.</p>
+            <p>Buys pay a hair over the print. Sells receive a hair under. Live mode uses the real street. Replay is a shaped day, labeled, never called live.</p>
+            <p>The top bar is the long mine. Leave this page open. A full bar pays 1 T3X onto the screen. It can take a few days or a week. You cannot connect a wallet.</p>
+            <button
+              onClick={() => {
+                if (window.confirm('Reset this floor, including the T3X bar on this screen?')) floor.reset();
+              }}
+            >
+              Reset floor
+            </button>
+          </section>
+        )}
 
         <footer className="foot">
           <a href="https://t3x.futuret3ch.com.au" target="_blank" rel="noopener">
@@ -327,7 +320,19 @@ export default function CryptoLand() {
           <p>Intellectual property. Trademarked 2026.</p>
         </footer>
       </main>
-      {toast ? <div className="toast">{toast}</div> : null}
+
+      {floor.banner > 0 && (
+        <div className="paid">
+          <img src="/t3x-mark.png" alt="" />
+          <div>
+            <strong>1 T3X paid onto this screen.</strong>
+            <p>You hold {floor.banner}. No wallet. The bar starts again.</p>
+          </div>
+          <button onClick={floor.dismiss}>Keep hashing</button>
+        </div>
+      )}
+      {floor.note ? <div className="toast">{floor.note}</div> : null}
+      {trailer ? <Trailer onClose={closeTrailer} /> : null}
     </div>
   );
 }

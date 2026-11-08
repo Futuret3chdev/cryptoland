@@ -16,7 +16,7 @@ const mono = IBM_Plex_Mono({
 
 export const metadata: Metadata = {
   title: 'Crypto Land',
-  description: 'Mine the night city. Trade the live book. A T3X game by futuret3ch.',
+  description: 'A game day on the real street. Mine, pay the bill, and fill the T3X bar. No wallet.',
 };
 
 export const viewport: Viewport = {
